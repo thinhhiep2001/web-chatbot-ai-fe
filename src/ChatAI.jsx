@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FaSearch,
   FaPaperPlane,
@@ -12,6 +12,8 @@ import {
   FaMoon,
   FaDesktop,
 } from "react-icons/fa"
+import { gsap } from "gsap"
+import { ScrollTrigger } from "gsap/ScrollTrigger"
 import {
   getAvailableBots,
   getSessions,
@@ -22,33 +24,43 @@ import {
 } from './api/api';
 
 const ChatApp = () => {
-  const [query, setQuery] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [selectedChat, setSelectedChat] = useState('');
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [chatBots, setChatBots] = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
-  const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
-  const [user, setUser] = useState(null);
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [theme, setTheme] = useState("light")
-  const [chatFontSize, setChatFontSize] = useState("medium");
-  const [globalFontSize, setGlobalFontSize] = useState("medium");
-  const [isLoading, setIsLoading] = useState(false)
+  const [query, setQuery] = useState(''); // Current message input
+  const [messages, setMessages] = useState([]); // Messages in current session
+  const [selectedChat, setSelectedChat] = useState(''); // Currently selected chatbot
+  const [selectedSession, setSelectedSession] = useState(null); // Current chat session
+  const [chatBots, setChatBots] = useState([]); // Available chatbots list
+  const [sessions, setSessions] = useState([]); // User's chat sessions
+  const [searchTerm, setSearchTerm] = useState(''); // Search filter for chatbots
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true); // Mobile sidebar toggle
+  const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false); // Login modal state
+  const [user, setUser] = useState(null); // Current logged-in user
+  const [selectedFiles, setSelectedFiles] = useState([]); // Files to be sent with message
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // Settings modal state
+  const [theme, setTheme] = useState("light"); // Current theme (light/night)
+  const [chatFontSize, setChatFontSize] = useState("medium"); // Chat message font size
+  const [globalFontSize, setGlobalFontSize] = useState("medium"); // Global UI font size
+  const [isLoading, setIsLoading] = useState(false); // Loading indicator
 
+  gsap.registerPlugin(ScrollTrigger);
+  const [typingMessages, setTypingMessages] = useState(new Set()); // Track which messages are typing
+  // Refs for DOM elements used in animations
+  const messagesContainerRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const chatWindowRef = useRef(null);
+  const settingsRef = useRef(null);
+
+  // Cleanup object URLs when component unmounts
   useEffect(() => {
     return () => {
-      // Cleanup object URLs when component unmounts
       selectedFiles.forEach((file) => {
         if (file.url) {
-          URL.revokeObjectURL(file.url)
+          URL.revokeObjectURL(file.url);
         }
-      })
-    }
-  }, [])
+      });
+    };
+  }, []);
 
+  // Fetch user sessions when chatbot or user changes
   useEffect(() => {
     const fetchChatBots = async () => {
       try {
@@ -68,6 +80,7 @@ const ChatApp = () => {
     fetchChatBots();
   }, []);
 
+  // Fetch chat history when session changes
   useEffect(() => {
     if (!selectedChat || !user) return;
     const fetchSessions = async () => {
@@ -88,28 +101,96 @@ const ChatApp = () => {
     fetchSessions();
   }, [selectedChat, user]);
 
+  // GSAP animations
   useEffect(() => {
-    if (!selectedSession || !user) return;
-    const fetchChatHistory = async () => {
-      try {
-        setIsLoading(true);
-        const response = await getChatHistory(selectedSession);
-        setMessages(response.data);
-      } catch (error) {
-        console.error('Error fetching chat history:', error);
-        setMessages([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchChatHistory();
-  }, [selectedSession, user]);
+    // Animate sidebar entrance
+    if (sidebarRef.current) {
+      gsap.fromTo(sidebarRef.current, { x: -300, opacity: 0 }, { x: 0, opacity: 1, duration: 0.8, ease: "power3.out" });
+    }
 
+    // Animate chat window entrance
+    if (chatWindowRef.current) {
+      gsap.fromTo(
+        chatWindowRef.current,
+        { x: 300, opacity: 0 },
+        { x: 0, opacity: 1, duration: 0.8, ease: "power3.out", delay: 0.2 }
+      );
+    }
+
+    // Animate settings dialog
+    if (isSettingsOpen && settingsRef.current) {
+      gsap.fromTo(
+        settingsRef.current,
+        { scale: 0.8, opacity: 0, y: 50 },
+        { scale: 1, opacity: 1, y: 0, duration: 0.5, ease: "back.out(1.7)" }
+      );
+    }
+  }, [isSettingsOpen]);
+
+  // Animate new messages
+  useEffect(() => {
+    const messageElements = messagesContainerRef.current?.querySelectorAll(".message-item:last-child");
+    if (messageElements && messageElements.length > 0) {
+      const lastMessage = messageElements[messageElements.length - 1];
+
+      gsap.fromTo(
+        lastMessage,
+        { y: 30, opacity: 0, scale: 0.95 },
+        { y: 0, opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }
+      );
+    }
+  }, [messages]);
+
+  // Smooth scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messagesContainerRef.current) {
+      gsap.to(messagesContainerRef.current, {
+        scrollTop: messagesContainerRef.current.scrollHeight,
+        duration: 0.8,
+        ease: "power2.out",
+        delay: 0.1
+      });
+    }
+  }, [messages]);
+
+  // Scroll trigger for messages
+  useEffect(() => {
+    if (messagesContainerRef.current) {
+      const messageElements = messagesContainerRef.current.querySelectorAll('.message-item');
+      messageElements.forEach((element, index) => {
+        gsap.fromTo(element, 
+          { 
+            opacity: 0, 
+            y: 20,
+            scale: 0.95 
+          },
+          {
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            duration: 0.5,
+            ease: "power2.out",
+            delay: index * 0.1,
+            scrollTrigger: {
+              trigger: element,
+              start: "top bottom-=100",
+              end: "bottom top+=100",
+              toggleActions: "play none none reverse"
+            }
+          }
+        );
+      });
+    }
+  }, [messages]);
+
+  // Handle sending a new message, creates new session if needed, sends message to API, handles AI response
   const handleSendMessage = async () => {
+    // Validate input
     if (query.trim() === '' && selectedFiles.length === 0) return;
   
     let sessionId = selectedSession;
 
+    // Create new session if needed
     if (selectedSession === 'new') {
       try {
         const res = await createSession(selectedChat, user.id, `New Chat ${Date.now()}`);
@@ -122,7 +203,9 @@ const ChatApp = () => {
       }
     }
   
+    // Create user message object
     const userMessage = {
+      id: `user-${Date.now()}`,
       sender: 'You',
       text: query,
       time: new Date().toLocaleTimeString().slice(0, 5),
@@ -131,42 +214,68 @@ const ChatApp = () => {
       files: selectedFiles,
     };
   
+    // Add user message to UI and clear input
     setMessages(prev => [...prev, userMessage]);
     setQuery('');
     setSelectedFiles([]);
   
     try {
+      // Send message to API
       const result = await sendMessage(userMessage);
-      setMessages(prev => [...prev, result.data]);
+      const aiMessage = {
+        id: `ai-${Date.now()}`,
+        sender: selectedChat,
+        text: result.data?.text,
+        time: new Date().toLocaleTimeString().slice(0, 5),
+      };
+
+      // Add AI message with empty text first (for typing animation)
+      const aiMessageWithEmptyText = { ...aiMessage, text: "" };
+      setMessages(prev => [...prev, aiMessageWithEmptyText]);
+
+      // Start typing animation after a short delay
+      setTimeout(() => {
+        typeMessage(aiMessage.id, aiMessage.text)
+      }, 500);
     } catch (error) {
       console.error('Error sending message:', error);
       // Add error message
       const errorMessage = {
+        id: `error-${Date.now()}`,
         sender: selectedChat,
         text: "Sorry, I couldn't process your message. Please try again.",
         time: new Date().toLocaleTimeString().slice(0, 5),
       };
-      setMessages((prev) => [...prev, errorMessage])
+      const errorMessageWithEmptyText = { ...errorMessage, text: "" };
+      setMessages((prev) => [...prev, errorMessageWithEmptyText]);
+      // Typing animation for error
+      setTimeout(() => {
+        typeMessage(errorMessage.id, errorMessage.text)
+      }, 500);
     }
   };
   
+  // Handle file selection and processing, limits to 5 files maximum
   const handleFileChange = async (e) => {
     const newFiles = Array.from(e.target.files);
     const currentFileCount = selectedFiles.length;
     const availableSlots = 5 - currentFileCount;
 
+    // Check file limit
     if (newFiles.length > availableSlots) {
       alert(`Bạn chỉ có thể thêm ${availableSlots} file nữa! (Tối đa 5 file)`);
       e.target.value = "";
       return;
     }
 
+    // Process each file based on type
     const processedFiles = await Promise.all(
       newFiles.map(async (file) => {
         const isImage = file.type.startsWith("image/");
         const isTextOrPdf = file.type === "text/plain" || file.type === "application/pdf";
 
         if (isImage) {
+          // Convert image to base64 and create preview URL
           const base64 = await toBase64(file);
           return {
             name: file.name,
@@ -177,6 +286,7 @@ const ChatApp = () => {
             url: URL.createObjectURL(file)
           };
         } else if (isTextOrPdf) {
+          // Read text content
           const text = await file.text();
           return {
             name: file.name,
@@ -187,15 +297,17 @@ const ChatApp = () => {
             url: null
           };
         } else {
-          return null
+          return null // Unsupported file type
         }
-      }),
+      })
     );
 
+    // Add processed files to state
     setSelectedFiles((prev) => [...prev, ...processedFiles.filter((f) => f !== null)]);
     e.target.value = "";
   };
   
+  // Convert file to base64 string
   const toBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -203,6 +315,7 @@ const ChatApp = () => {
     reader.onerror = reject;
   });  
 
+  // Handle successful Google login, stores token and user data, closes login dialog
   const handleGoogleSuccess = async (response) => {
     try {
       const { credential } = response;
@@ -213,15 +326,17 @@ const ChatApp = () => {
       setIsLoginDialogOpen(false);
     } catch (error) {
       console.error('Error during Google login:', error);
-      alert("Login failed. Please try again.")
+      alert("Login failed. Please try again.");
     }
   };
 
+  // Create a new chat session
   const handleCreateNewSession = async () => {
     setSelectedSession('new');
     setMessages([]);
   };
 
+  // Handle user logout
   const handleLogout = () => {
     localStorage.removeItem('token');
     setUser(null);
@@ -230,68 +345,107 @@ const ChatApp = () => {
     setSessions([]);
   };
 
+  // Typing animation function
+  const typeMessage = (messageId, text, onComplete) => {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"] .message-text`);
+    if (!messageElement || !text) return;
+
+    setTypingMessages((prev) => new Set([...prev, messageId]));
+
+    // Clear the text first
+    messageElement.textContent = "";
+
+    // Create typing animation
+    const chars = text.split("");
+    let currentIndex = 0;
+
+    const typeChar = () => {
+      if (currentIndex < chars.length) {
+        messageElement.textContent += chars[currentIndex];
+        currentIndex++;
+
+        // Random delay between 30-100ms for natural typing effect
+        const delay = Math.random() * 70 + 30;
+        setTimeout(typeChar, delay);
+      } else {
+        setTypingMessages((prev) => {
+          const newSet = new Set(prev)
+          newSet.delete(messageId)
+          return newSet
+        });
+        if (onComplete) onComplete();
+      }
+    }
+
+    setTimeout(typeChar, 300)
+  };
+
+  // Get font size class based on size setting
   const getFontSizeClass = (size, isGlobal = false) => {
     switch (size) {
       case "small":
-        return isGlobal ? "text-sm" : "text-sm"
+        return isGlobal ? "text-sm" : "text-sm";
       case "large":
-        return isGlobal ? "text-lg" : "text-lg"
+        return isGlobal ? "text-lg" : "text-lg";
       default:
-        return isGlobal ? "text-base" : "text-base"
+        return isGlobal ? "text-base" : "text-base";
     }
   };
 
+  // Get theme-specific classes for main container
   const getThemeClasses = () => {
     if (theme === "night") {
-      return "night-mode bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 text-cyan-100"
+      return "night-mode bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 text-cyan-100";
     }
-    return "light-mode bg-gradient-to-br from-blue-50 via-white to-cyan-50 text-slate-800"
+    return "light-mode bg-gradient-to-br from-blue-50 via-white to-cyan-50 text-slate-800";
   };
 
+  // Get theme-specific classes for card components
   const getCardClasses = () => {
     if (theme === "night") {
-      return "bg-slate-800/80 border-slate-700/50 backdrop-blur-sm shadow-xl shadow-cyan-500/10 rounded-2xl border"
+      return "bg-slate-800/80 border-slate-700/50 backdrop-blur-sm shadow-xl shadow-cyan-500/10 rounded-2xl border";
     }
-    return "bg-white/90 border-slate-200 backdrop-blur-sm shadow-lg rounded-2xl border"
+    return "bg-white/90 border-slate-200 backdrop-blur-sm shadow-lg rounded-2xl border";
   };
 
+  // Get theme-specific classes for input fields
   const getInputClasses = () => {
     if (theme === "night") {
-      return "bg-slate-700/50 border-slate-600 text-cyan-100 placeholder:text-slate-400 focus:border-cyan-400 w-full p-2 rounded-lg border outline-none transition-colors"
+      return "bg-slate-700/50 border-slate-600 text-cyan-100 placeholder:text-slate-400 focus:border-cyan-400 w-full p-2 rounded-lg border outline-none transition-colors";
     }
-    return "bg-white border-slate-300 text-slate-800 placeholder:text-slate-500 focus:border-blue-400 w-full p-2 rounded-lg border outline-none transition-colors"
+    return "bg-white border-slate-300 text-slate-800 placeholder:text-slate-500 focus:border-blue-400 w-full p-2 rounded-lg border outline-none transition-colors";
   };
 
+  // Get theme-specific classes for buttons
   const getButtonClasses = (variant = "default") => {
-    const baseClasses =
-      "px-4 py-2 rounded-lg font-medium transition-all duration-200 cursor-pointer border outline-none"
+    const baseClasses = "px-4 py-2 rounded-lg font-medium transition-all duration-200 cursor-pointer border outline-none";
 
     if (theme === "night") {
       if (variant === "primary") {
-        return `${baseClasses} bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white shadow-lg shadow-cyan-500/25 border-transparent`
+        return `${baseClasses} bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white shadow-lg shadow-cyan-500/25 border-transparent`;
       }
-      return `${baseClasses} bg-slate-700/50 hover:bg-slate-600/50 text-cyan-100 border-slate-600`
+      return `${baseClasses} bg-slate-700/50 hover:bg-slate-600/50 text-cyan-100 border-slate-600`;
     }
     if (variant === "primary") {
-      return `${baseClasses} bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white shadow-lg border-transparent`
+      return `${baseClasses} bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white shadow-lg border-transparent`;
     }
-    return `${baseClasses} bg-white hover:bg-slate-50 text-slate-800 border-slate-300`
+    return `${baseClasses} bg-white hover:bg-slate-50 text-slate-800 border-slate-300`;
   };
 
+  // Get theme-specific classes for icon buttons
   const getIconButtonClasses = (variant = "default") => {
-    const baseClasses =
-      "p-2 rounded-full transition-all duration-200 cursor-pointer border outline-none flex items-center justify-center"
+    const baseClasses = "p-2 rounded-full transition-all duration-200 cursor-pointer border outline-none flex items-center justify-center";
 
     if (theme === "night") {
       if (variant === "primary") {
-        return `${baseClasses} bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white shadow-lg shadow-cyan-500/25 border-transparent`
+        return `${baseClasses} bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white shadow-lg shadow-cyan-500/25 border-transparent`;
       }
-      return `${baseClasses} bg-slate-700/50 hover:bg-slate-600/50 text-cyan-100 border-slate-600`
+      return `${baseClasses} bg-slate-700/50 hover:bg-slate-600/50 text-cyan-100 border-slate-600`;
     }
     if (variant === "primary") {
-      return `${baseClasses} bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white shadow-lg border-transparent`
+      return `${baseClasses} bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white shadow-lg border-transparent`;
     }
-    return `${baseClasses} bg-white hover:bg-slate-50 text-slate-800 border-slate-300`
+    return `${baseClasses} bg-white hover:bg-slate-50 text-slate-800 border-slate-300`;
   };
 
   return (
@@ -377,7 +531,7 @@ const ChatApp = () => {
       {/* Settings Dialog */}
       {isSettingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className={`w-[500px] max-h-[80vh] overflow-y-auto ${getCardClasses()}`}>
+          <div ref={settingsRef} className={`w-[500px] max-h-[80vh] overflow-y-auto ${getCardClasses()}`}>
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h2 className={`text-xl font-semibold ${theme === "night" ? "text-cyan-100" : "text-slate-800"}`}>
@@ -499,7 +653,7 @@ const ChatApp = () => {
 
       {/* Sidebar */}
       {isSidebarVisible && (
-        <div className={`w-full md:w-1/4 md:block ${getCardClasses()}`}>
+        <div ref={sidebarRef} className={`w-full md:w-1/4 md:block ${getCardClasses()}`}>
           <div className="p-4">
             <div className="flex items-center mb-4">
               <img
@@ -635,7 +789,7 @@ const ChatApp = () => {
       )}
 
       {/* Chat Window */}
-      <div className={`flex-1 ml-0 md:ml-6 flex flex-col ${getCardClasses()}`}>
+      <div ref={chatWindowRef} className={`flex-1 ml-0 md:ml-6 flex flex-col ${getCardClasses()}`}>
         <div className="p-6 flex flex-col h-full">
           {selectedChat && (selectedSession || selectedSession === "new") && user ? (
             <>
@@ -658,14 +812,18 @@ const ChatApp = () => {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                 {isLoading && messages.length === 0 ? (
                   <div className={`text-center py-4 ${theme === "night" ? "text-slate-400" : "text-gray-500"}`}>
                     <p className="text-sm">Loading messages...</p>
                   </div>
                 ) : (
                   messages.map((msg, index) => (
-                    <div key={index} className={`flex ${msg.sender === "You" ? "justify-end" : "justify-start"}`}>
+                    <div 
+                      key={index}
+                      className={`flex message-item ${msg.sender === "You" ? "justify-end" : "justify-start"}`}
+                      data-message-id={msg.id}
+                    >
                       <div
                         className={`p-3 rounded-lg max-w-xs lg:max-w-md ${getFontSizeClass(chatFontSize)} ${
                           msg.sender === "You"
@@ -677,7 +835,12 @@ const ChatApp = () => {
                               : "bg-gray-100 text-slate-800 border border-gray-200"
                         }`}
                       >
-                        <p>{msg.text}</p>
+                        <p className="message-text">
+                          {msg.text}
+                          {typingMessages.has(msg.id) && (
+                            <span className="inline-block w-2 h-5 bg-current ml-1 animate-blink">|</span>
+                          )}
+                        </p>
                         <span className="block text-xs opacity-70 mt-1">{msg.time}</span>
                       </div>
                     </div>
